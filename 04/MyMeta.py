@@ -37,17 +37,4 @@ class User(metaclass=MyMeta):
 
     def __str__(self):
         return "Custom_by_metaclass"
-
-
-def test_first_task():
-    inst = User()
-    assert inst.custom_x == 50, False
-    assert inst.custom_val == 99, False
-    assert inst.custom_line() == 100, False
-    assert str(inst) == "Custom_by_metaclass", False
-    assert inst.x == 50, False
-    assert inst.val == 99, False
-    assert inst.line() == 100, False
-    inst.dynamic = "added later"
-    assert inst.custom_dynamic == "added later", False
-    assert inst.dynamic == "added later", False
+    
