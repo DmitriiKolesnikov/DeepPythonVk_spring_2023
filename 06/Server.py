@@ -1,45 +1,44 @@
 import socket
+import threading
 import urllib.request
+import json
 from collections import Counter
-import re
-
-BUFFER_SIZE = 4096
 
 
-def count_words(url):
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    words = re.findall(r'\w+', html.decode())
-    return Counter(words)
+def worker(worker_id):
+    urls_processed = 0
+    while True:
+        try:
+            url, client_socket = master_queue.get()
+        except:
+            print(f"Worker {worker_id} finished. Processed {urls_processed} urls.")
+            return
+        try:
+            response = urllib.request.urlopen(url)
+            html = response.read().decode()
+            words = html.split()
+            top_k_words = dict(Counter(words).most_common(k))
+            json_data = json.dumps(top_k_words)
+            client_socket.sendall(json_data.encode())
+        except:
+            
+            client_socket.sendall(b"Error")
+        finally:
+            client_socket.close()
+            urls_processed += 1
+            print(f"Worker {worker_id} processed {url}. Total processed: {urls_processed}")
 
 
-def format_response(words_count):
-    sorted_words = sorted(words_count.items(), key=lambda x: x[1], reverse=True)
-    response = '\n'.join([f'{w}: {c}' for w, c in sorted_words])
-    return response
-
-
-def start_server(host='127.0.0.1', port=65432):
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((host, port))
-        s.listen()
-        print(f'Server started on {host}:{port}')
-
-        while True:
-            conn, addr = s.accept()
-            with conn:
-                print('Connected by', addr)
-                url = conn.recv(BUFFER_SIZE).decode()
-                try:
-                    words_count = count_words(url)
-                    response = format_response(words_count)
-                except Exception as e:
-                    response = f'Error: {str(e)}'
-                conn.sendall(response.encode())
-
-
-if __name__ == "__main__":
-    print("Server")
-
-
+master_queue = queue.Queue()
+num_workers = 4
+for i in range(num_workers):
+    threading.Thread(target=worker, args=(i,)).start()
+host = ""
+port = 12345
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind((host, port))
+s.listen(5)
+while True:
+    client_socket, addr = s.accept()
+    url = client_socket.recv(1024).decode()
+    master_queue.put((url, client_socket))
