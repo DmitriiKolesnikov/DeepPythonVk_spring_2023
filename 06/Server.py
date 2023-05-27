@@ -1,64 +1,83 @@
-import socket
-import threading
+import argparse
+import asyncio
 import json
-import urllib.request
-from collections import Counter
+import operator
+import re
+import threading
+
+import aiohttp
 
 
-class MasterWorkerServer:
-    def __init__(self, host, port, num_workers, top_k):
-        self.host = host
-        self.port = port
-        self.num_workers = num_workers
+class WorkerThread(threading.Thread):
+    def __init__(self, worker_id, url_queue, top_k, results_queue):
+        super().__init__()
+        self.id = worker_id
+        self.url_queue = url_queue
         self.top_k = top_k
-        self.worker_threads = []
-        self.url_counter = 0
+        self.results_queue = results_queue
 
-    def start(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.bind((self.host, self.port))
-        self.socket.listen(1)
-        print(f"Server listening on {self.host}:{self.port} with {self.num_workers} workers.")
+    async def process_url(self, session, url):
+        async with session.get(url) as response:
+            return await response.text()
 
-        for i in range(self.num_workers):
-            t = threading.Thread(target=self.worker_loop)
-            t.start()
-            self.worker_threads.append(t)
+    async def handle_request(self, session, url):
+        text = await self.process_url(session, url)
+        words = re.findall(r'\w+', text.lower())
+        word_counts = {}
+        for word in words:
+            if word in word_counts:
+                word_counts[word] += 1
+            else:
+                word_counts[word] = 1
+        sorted_word_counts = sorted(word_counts.items(), key=operator.itemgetter(1), reverse=True)[:self.top_k]
+        result = {word: count for word, count in sorted_word_counts}
+        self.results_queue.put(result)
 
+    async def run(self):
+        async with aiohttp.ClientSession() as session:
+            while True:
+                url = await self.url_queue.get()
+                await self.handle_request(session, url)
+                self.url_queue.task_done()
+
+
+async def serve_forever(worker_count, top_k):
+    url_queue = asyncio.Queue()
+    results_queue = asyncio.Queue()
+    workers = [WorkerThread(i, url_queue, top_k, results_queue) for i in range(worker_count)]
+
+    for worker in workers:
+        worker.start()
+
+    async def handle_client(reader, writer):
         while True:
-            client_socket, addr = self.socket.accept()
-            print(f"Accepted connection from {addr}")
-            url = client_socket.recv(1024).decode()
-            print(f"Received URL: {url}")
-            self.dispatch_work(url, client_socket)
+            data = await reader.readline()
+            if not data:
+                break
+            url = data.decode().strip()
+            url_queue.put_nowait(url)
 
-    def dispatch_work(self, url, client_socket):
-        self.task_queue.put((url, client_socket))
+        url_queue.join()
 
-    def worker_loop(self):
-        while True:
-            url, client_socket = self.task_queue.get()
-            try:
-                response = urllib.request.urlopen(url)
-                data = response.read().decode('utf-8')
-                words = data.split()
-                counter = Counter(words)
-                top_k_words = dict(counter.most_common(self.top_k))
-                client_socket.send(json.dumps(top_k_words).encode('utf-8'))
-            except Exception as e:
-                print(f"Error processing URL {url}: {str(e)}")
-            finally:
-                client_socket.close()
-                self.url_counter += 1
-                print(f"Processed {self.url_counter} URLs")
+        result = {}
+        while not results_queue.empty():
+            result.update(results_queue.get())
 
-                
+        writer.write(json.dumps(result).encode() + b'\n')
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle_client, '127.0.0.1', 8080)
+
+    async with server:
+        await server.serve_forever()
+
+
 if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser(description='Master-worker server for processing client requests')
-    parser.add_argument('-w', '--workers', type=int, default=10, help='Number of worker threads (default 10)')
-    parser.add_argument('-k', '--top_k', type=int, default=7, help='Top K most common words to return (default 7)')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-w', '--workers', type=int, default=1, help='Number of worker threads')
+    parser.add_argument('-k', '--top-k', type=int, default=10, help='Number of top words to return')
     args = parser.parse_args()
-    server = MasterWorkerServer('localhost', 8000, args.workers, args.top_k)
-    server.start()
 
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(serve_forever(args.workers, args.top_k))
