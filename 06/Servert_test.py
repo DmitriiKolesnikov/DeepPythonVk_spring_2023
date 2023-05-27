@@ -58,7 +58,6 @@ class TestServer(unittest.TestCase):
         process = Process(target=server.serve_forever)
         process.start()
 
-        # Wait for the server to start listening
         while True:
             try:
                 response = urllib.request.urlopen('http://127.0.0.1:8080')
@@ -124,7 +123,6 @@ class TestServer(unittest.TestCase):
         process = Process(target=server.serve_forever)
         process.start()
 
-        # Wait for the server to start listening
         while True:
             try:
                 response = urllib.request.urlopen('http://127.0.0.1:8080')
