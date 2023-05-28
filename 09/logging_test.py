@@ -1,5 +1,5 @@
 import unittest
-from Logging import LRUCache
+from logging import LRUCache
 
 class TestLRUCache(unittest.TestCase):
     def setUp(self):
