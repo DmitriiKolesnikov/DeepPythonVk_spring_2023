@@ -1,74 +1,73 @@
-
 import logging
-import argparse
+
 
 class LRUCache:
     def __init__(self, capacity):
         self.capacity = capacity
         self.cache = {}
-        self.lru_list = []
+        self.head = Node(None, None)
+        self.tail = Node(None, None)
+        self.head.next = self.tail
+        self.tail.prev = self.head
+        self.logger = logging.getLogger(__name__)
 
     def get(self, key):
         if key in self.cache:
-            self.lru_list.remove(key)
-            self.lru_list.append(key)
-            return self.cache[key]
+            node = self.cache[key]
+            self._remove(node)
+            self._add(node)
+            self.logger.info("Accessed element with key (%s) and value (%s)", key, node.value)
+            return node.value
         else:
-            return "Key not found"
+            self.logger.info("Element with key (%s) not found", key)
+            return None
 
-    def set(self, key, val):
+    def set(self, key, value):
         if key in self.cache:
-            self.lru_list.remove(key)
-        elif len(self.lru_list) >= self.capacity:
-            evicted_key = self.lru_list.pop(0)
-            self.cache.pop(evicted_key)
-        self.cache[key] = val
-        self.lru_list.append(key)
+            node = self.cache[key]
+            node.value = value
+            self._remove(node)
+            self._add(node)
+            self.logger.debug("Updated element with key (%s) and new value (%s)", key, value)
+        else:
+            node = Node(key, value)
+            self.cache[key] = node
+            self._add(node)
+            if len(self.cache) > self.capacity:
+                node_to_remove = self.head.next
+                self._remove(node_to_remove)
+                del self.cache[node_to_remove.key]
+                self.logger.info("Removed element with key (%s) and value (%s) due to capacity", node_to_remove.key, node_to_remove.value)
+            self.logger.debug("Added new element with key (%s) and value (%s)", key, value)
 
-def main(args):
-    logging_format = '%(asctime)s - %(levelname)s - %(message)s'
-    logging_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(filename='cache.log', format=logging_format, level=logging_level)
+    def _remove(self, node):
+        node.prev.next = node.next
+        node.next.prev = node.prev
 
-    if args.stdout:
-        console = logging.StreamHandler()
-        console.setLevel(logging.DEBUG)
-        console.setFormatter(logging.Formatter('%(message)s'))
-        logging.getLogger('').addHandler(console)
+    def _add(self, node):
+        node.prev = self.tail.prev
+        node.next = self.tail
+        node.prev.next = node
+        self.tail.prev = node
 
-    if args.filter == "even":
-        filter_func = lambda record: len(record.getMessage().split())%2 == 0
-    else:
-        filter_func = None
 
-    if filter_func:
-        logging.getLogger('').addFilter(logging.Filter()(filter_func))
+class Node:
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value
+        self.prev = None
+        self.next = None
 
-    cache = LRUCache(args.capacity)
-    cache.set(1, "one")
-    logging.info(f"Set key 1 to value 'one'")
-    cache.set(2, "two")
-    logging.info(f"Set key 2 to value 'two'")
-    logging.debug("This is a debug message")
-    val = cache.get(1)
-    logging.info(f"Getting value for key 1: {val}")
-    val = cache.get(3)
-    logging.info(f"Getting value for key 3: {val}")
-    cache.set(3, "three")
-    logging.info(f"Set key 3 to value 'three'")
-    cache.set(4, "four")
-    logging.info(f"Set key 4 to value 'four'")
-    cache.set(5, "five")
-    logging.info(f"Set key 5 to value 'five'")
-    cache.set(6, "six")
-    logging.info(f"Set key 6 to value 'six'")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--capacity", type=int, default=5, help="capacity of the cache")
-    parser.add_argument("-d", "--debug", action="store_true", help="enable debug logging")
-    parser.add_argument("-s", "--stdout", action="store_true", help="log to stdout with separate formatting")
-    parser.add_argument("-f", "--filter", choices=["even", "odd"], help="custom filter to apply to log records")
-    args = parser.parse_args()
-
-    main(args)
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    lru_cache = LRUCache(2)
+    lru_cache.set(1, "one")
+    lru_cache.set(2, "two")
+    lru_cache.get(1)
+    lru_cache.set(3, "three")
+    lru_cache.get(2)
+    lru_cache.set(4, "four")
+    lru_cache.get(1)
+    lru_cache.get(3)
+    lru_cache.get(4)
